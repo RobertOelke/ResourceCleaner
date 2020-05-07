@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.git
+/.vs
+/ResourceCleaner/bin
+/ResourceCleaner/obj
+/ResourceCleaner.Common/bin
+/ResourceCleaner.Common/obj
