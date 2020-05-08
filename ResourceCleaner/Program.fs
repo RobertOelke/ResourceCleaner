@@ -30,6 +30,7 @@ type App() =
         match this.ApplicationLifetime with
         | :? IClassicDesktopStyleApplicationLifetime as desktopLifetime ->
             let mainWindow = MainWindow()
+            Shared.mainWindow <- mainWindow
             desktopLifetime.MainWindow <- mainWindow
         | _ -> ()
 
