@@ -16,11 +16,13 @@ module Shell =
 
     type State = {
         SelectedFile : string option
+        SelectedDirectory : string option
         Resources : ResourceEntry list
     }
 
     let initState = {
         SelectedFile = None
+        SelectedDirectory = None
         Resources = []
     }
 
@@ -30,7 +32,10 @@ module Shell =
     type Msg = 
     | SelectFile
     | FilesSelected of string list
+    | SelectDirectory
+    | DirectorySelected of string
     | Reset
+    | ProcessResources
 
     let createFileDialog () =
         let dialog = Avalonia.Controls.OpenFileDialog()
@@ -47,6 +52,9 @@ module Shell =
 
         dialog.Filters <- filters
         dialog
+
+    let createFolderDialog () =
+        Avalonia.Controls.OpenFolderDialog()
 
     let parseContent (fileName : string) =
         let content = Common.ResourceParser.ResourceFile.Load fileName
@@ -69,26 +77,60 @@ module Shell =
             | h::_ -> { state with SelectedFile = Some h; Resources = parseContent h }, Cmd.none
             | _ -> state, Cmd.none
 
+        | SelectDirectory ->
+            let dialog = createFolderDialog ()
+            let handleResult x = x |> DirectorySelected
+
+            let cmd = Cmd.OfTask.perform dialog.ShowAsync Shared.mainWindow handleResult
+
+            state, cmd
+
+        | DirectorySelected path ->
+            { state with SelectedDirectory = Some path}, Cmd.none
+
         | Reset -> initState, Cmd.none
+        | ProcessResources -> state, Cmd.none
     
     let createHeader row (state : State) dispatch =
+        let createFilePathElement row col text =
+            TextBlock.create [
+                Grid.row row
+                Grid.column col
+                TextBlock.text text]
+
         DockPanel.create [
             Grid.row row
             DockPanel.lastChildFill false
             DockPanel.children [
-                TextBlock.create [
+                
+                Grid.create [
                     DockPanel.dock Dock.Left
-                    TextBlock.text "Resource-Datei"
+                    Grid.rowDefinitions "auto,auto"
+                    Grid.columnDefinitions "auto,10,auto"
+
+                    Grid.children [
+                        createFilePathElement 0 0 "Resource-Datei"
+                        createFilePathElement 0 2 (state.SelectedFile |> Option.defaultValue "<empty>")
+                        createFilePathElement 1 0 "Ordner"
+                        createFilePathElement 1 2 (state.SelectedDirectory |> Option.defaultValue "<empty>")
+                    ]
                 ]
-                TextBlock.create [
-                    DockPanel.dock Dock.Left
-                    TextBlock.margin (10., 0.)
-                    TextBlock.text (state.SelectedFile |> Option.defaultValue "<empty>")
-                ]
+
                 Button.create [
                     DockPanel.dock Dock.Right
                     Button.content "Resource-Datei auswählen."
                     Button.onClick (fun _ -> dispatch SelectFile)
+                ]
+                Button.create [
+                    DockPanel.dock Dock.Right
+                    Button.content "Ordner auswählen."
+                    Button.onClick (fun _ -> dispatch SelectDirectory)
+                ]
+                Button.create [
+                    Button.isEnabled (state.SelectedDirectory.IsSome && state.SelectedFile.IsSome )
+                    DockPanel.dock Dock.Right
+                    Button.content "Start"
+                    Button.onClick (fun _ -> dispatch ProcessResources)
                 ]
             ]
         ]
