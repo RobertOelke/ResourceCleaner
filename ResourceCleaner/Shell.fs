@@ -8,10 +8,13 @@ module Shell =
     open Avalonia.FuncUI.DSL
     open Avalonia.FuncUI.Components
     open Avalonia.Layout
+    open ResourceCleaner.Common
+    open FSharp.Collections.ParallelSeq
     
     type ResourceEntry = {
         Key : string
         Value : string option
+        ReferenceCount : int
     }
 
     type State = {
@@ -59,12 +62,12 @@ module Shell =
     let parseContent (fileName : string) =
         let content = Common.ResourceParser.ResourceFile.Load fileName
         content.Datas 
-        |> Seq.map (fun x -> { Key = x.Name; Value = x.Value })
+        |> Seq.map (fun x -> { Key = x.Name; Value = x.Value; ReferenceCount = 0 })
         |> List.ofSeq
 
     let update (msg: Msg) (state: State) : (State*Cmd<Msg>) =
         match msg with
-        |SelectFile ->
+        | SelectFile ->
             let dialog = createFileDialog ()
             let handleResult x = x :> seq<string> |> List.ofSeq |> FilesSelected 
 
@@ -89,7 +92,17 @@ module Shell =
             { state with SelectedDirectory = Some path}, Cmd.none
 
         | Reset -> initState, Cmd.none
-        | ProcessResources -> state, Cmd.none
+        | ProcessResources ->
+            let keys = state.Resources |> List.map (fun x -> x.Key)
+            let filePaths = FileHandler.relevantFiles state.SelectedDirectory.Value
+            let getResultsForPath = FileHandler.checkFileForKeys keys
+
+            let res = filePaths |> PSeq.map getResultsForPath |> Seq.collect id |> List.ofSeq
+            let countKeywords resource = res |> List.sumBy (fun y -> if resource.Key = y.KeyWord then 1 else 0 )
+
+            let newResources = state.Resources |> List.map (fun x -> { x with ReferenceCount = countKeywords x}) 
+
+            {state with Resources = newResources}, Cmd.none
     
     let createHeader row (state : State) dispatch =
         let createFilePathElement row col text =
@@ -129,7 +142,7 @@ module Shell =
                 Button.create [
                     Button.isEnabled (state.SelectedDirectory.IsSome && state.SelectedFile.IsSome )
                     DockPanel.dock Dock.Right
-                    Button.content "Start"
+                    Button.content "Start."
                     Button.onClick (fun _ -> dispatch ProcessResources)
                 ]
             ]
@@ -142,14 +155,18 @@ module Shell =
 
             ListBox.itemTemplate (DataTemplateView<ResourceEntry>.create(fun res ->
                 Grid.create [
-                    Grid.columnDefinitions "1*,2*"
+                    Grid.columnDefinitions "100,1*,2*"
                     Grid.children [
                         TextBlock.create [
                             Grid.column 0
+                            TextBlock.text (res.ReferenceCount |> string)
+                        ]
+                        TextBlock.create [
+                            Grid.column 1
                             TextBlock.text res.Key
                         ]
                         TextBlock.create [
-                            yield Grid.column 1
+                            yield Grid.column 2
                             match res.Value with
                             | Some v -> 
                                 yield TextBlock.text v

@@ -8,12 +8,17 @@ module FileHandler =
 
     let toExtension = 
         function
-        | Xaml -> ".xaml"
-        | CSharp -> ".cs"
+        | Xaml -> "*.xaml"
+        | CSharp -> "*.cs"
         
-    let fileNames extension path  =
+    let fileNames extension path =
         let fileNames = Directory.GetFiles(path, extension |> toExtension, SearchOption.AllDirectories)
         fileNames |> List.ofSeq
+
+    let relevantFiles path = [
+            yield! (fileNames Xaml path)
+            yield! (fileNames CSharp path)
+        ]
 
     let fileContent path =
         let rec concatAllLines content list =
