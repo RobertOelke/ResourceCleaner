@@ -55,3 +55,5 @@ module ResourceParser =
     """
 
     type ResourceFile = XmlProvider<Schema = schema>
+
+    type Root = ResourceFile.Root

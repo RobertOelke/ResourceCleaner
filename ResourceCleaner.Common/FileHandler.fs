@@ -17,7 +17,7 @@ module FileHandler =
 
     let relevantFiles path = [
             yield! (fileNames Xaml path)
-            yield! (fileNames CSharp path)
+            yield! (fileNames CSharp path) |> List.where (fun x -> not (x.EndsWith(".Designer.cs")))
         ]
 
     let fileContent path =

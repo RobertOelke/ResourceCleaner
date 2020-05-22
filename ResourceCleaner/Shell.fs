@@ -21,12 +21,14 @@ module Shell =
         SelectedFile : string option
         SelectedDirectory : string option
         Resources : ResourceEntry list
+        SourceResourceFile : ResourceParser.Root option
     }
 
     let initState = {
         SelectedFile = None
         SelectedDirectory = None
         Resources = []
+        SourceResourceFile = None
     }
 
     let init () =
@@ -39,6 +41,7 @@ module Shell =
     | DirectorySelected of string
     | Reset
     | ProcessResources
+    | RemoveUnusedResources
 
     let createFileDialog () =
         let dialog = Avalonia.Controls.OpenFileDialog()
@@ -60,7 +63,9 @@ module Shell =
         Avalonia.Controls.OpenFolderDialog()
 
     let parseContent (fileName : string) =
-        let content = Common.ResourceParser.ResourceFile.Load fileName
+        Common.ResourceParser.ResourceFile.Load fileName
+
+    let parseSourceFile (content : ResourceParser.Root) =
         content.Datas 
         |> Seq.map (fun x -> { Key = x.Name; Value = x.Value; ReferenceCount = 0 })
         |> List.ofSeq
@@ -77,7 +82,13 @@ module Shell =
 
         | FilesSelected lst ->
             match lst with
-            | h::_ -> { state with SelectedFile = Some h; Resources = parseContent h }, Cmd.none
+            | h::_ ->
+                let sourceResource = parseContent h
+                { state with
+                        SelectedFile = Some h
+                        Resources = parseSourceFile sourceResource
+                        SourceResourceFile = Some sourceResource 
+                }, Cmd.none
             | _ -> state, Cmd.none
 
         | SelectDirectory ->
@@ -103,6 +114,9 @@ module Shell =
             let newResources = state.Resources |> List.map (fun x -> { x with ReferenceCount = countKeywords x}) 
 
             {state with Resources = newResources}, Cmd.none
+
+        | RemoveUnusedResources ->
+            state, Cmd.none
     
     let createHeader row (state : State) dispatch =
         let createFilePathElement row col text =
@@ -113,6 +127,9 @@ module Shell =
 
         DockPanel.create [
             Grid.row row
+
+            DockPanel.margin 10.
+
             DockPanel.lastChildFill false
             DockPanel.children [
                 
@@ -151,7 +168,9 @@ module Shell =
     let createListBox row state dispatch =
         ListBox.create [
             Grid.row row
-            ListBox.dataItems state.Resources
+            ListBox.dataItems (state.Resources |> Seq.sortBy (fun x -> x.ReferenceCount))
+
+            ListBox.margin 10.
 
             ListBox.itemTemplate (DataTemplateView<ResourceEntry>.create(fun res ->
                 Grid.create [
