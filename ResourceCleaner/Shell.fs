@@ -105,10 +105,23 @@ module Shell =
         | Reset -> initState, Cmd.none
         | ProcessResources ->
             let keys = state.Resources |> List.map (fun x -> x.Key)
-            let filePaths = FileHandler.relevantFiles state.SelectedDirectory.Value
+
+            let cSharpFiles =
+                state.SelectedDirectory.Value 
+                |> FileHandler.fileNames FileHandler.Extension.CSharp
+                |> List.where (fun x -> not (x.EndsWith(".Designer.cs")))
+                |> List.map (FileHandler.fileContent FileHandler.Extension.CSharp)
+                |> List.filter FileHandler.isRelevantFileForSearch
+
+            let xamlFiles =
+                state.SelectedDirectory.Value 
+                |> FileHandler.fileNames FileHandler.Extension.Xaml
+                |> List.map (FileHandler.fileContent FileHandler.Extension.Xaml)
+                |> List.filter FileHandler.isRelevantFileForSearch
+
             let getResultsForPath = FileHandler.checkFileForKeys keys
 
-            let res = filePaths |> PSeq.map getResultsForPath |> Seq.collect id |> List.ofSeq
+            let res = (cSharpFiles@xamlFiles) |> PSeq.map getResultsForPath |> Seq.collect id |> List.ofSeq
             let countKeywords resource = res |> List.sumBy (fun y -> if resource.Key = y.KeyWord then 1 else 0 )
 
             let newResources = state.Resources |> List.map (fun x -> { x with ReferenceCount = countKeywords x}) 
@@ -116,6 +129,18 @@ module Shell =
             {state with Resources = newResources}, Cmd.none
 
         | RemoveUnusedResources ->
+            let keysToRemove = state.Resources |> List.filter (fun x -> x.ReferenceCount = 0) |> List.map (fun x -> x.Key)
+
+            let datasToRemove =
+                state.SourceResourceFile.Value.Datas
+                |> Seq.filter (fun x -> keysToRemove |> List.contains x.Name)
+                |> List.ofSeq
+
+            for dataNode in datasToRemove do
+                dataNode.XElement.Remove()
+
+            state.SourceResourceFile.Value.XElement.Save(state.SelectedFile.Value)
+
             state, Cmd.none
     
     let createHeader row (state : State) dispatch =
@@ -161,6 +186,12 @@ module Shell =
                     DockPanel.dock Dock.Right
                     Button.content "Start."
                     Button.onClick (fun _ -> dispatch ProcessResources)
+                ]
+                Button.create [
+                    Button.isEnabled (state.SourceResourceFile.IsSome)
+                    DockPanel.dock Dock.Right
+                    Button.content "RemoveNodes"
+                    Button.onClick (fun _ -> dispatch RemoveUnusedResources)
                 ]
             ]
         ]
