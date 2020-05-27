@@ -7,7 +7,6 @@ module Shell =
     open Avalonia.Controls
     open Avalonia.FuncUI.DSL
     open Avalonia.FuncUI.Components
-    open Avalonia.Layout
     open ResourceCleaner.Common
     open FSharp.Collections.ParallelSeq
     
@@ -17,14 +16,20 @@ module Shell =
         ReferenceCount : int
     }
 
+    type ProcessingState = 
+    | Loading
+    | Ready
+
     type State = {
-        SelectedFile : string option
+        ProcessingState : ProcessingState
+        SelectedFile : string option        
         SelectedDirectory : string option
         Resources : ResourceEntry list
         SourceResourceFile : ResourceParser.Root option
     }
 
     let initState = {
+        ProcessingState = Ready
         SelectedFile = None
         SelectedDirectory = None
         Resources = []
@@ -41,6 +46,7 @@ module Shell =
     | DirectorySelected of string
     | Reset
     | ProcessResources
+    | ResourcesProcessed of ResourceEntry list
     | RemoveUnusedResources
 
     let createFileDialog () =
@@ -104,29 +110,46 @@ module Shell =
 
         | Reset -> initState, Cmd.none
         | ProcessResources ->
-            let keys = state.Resources |> List.map (fun x -> x.Key)
+            let processFiles () = async {
+                let keys = state.Resources |> List.map (fun x -> x.Key)
+                
+                let! allCSharpFiles =
+                    state.SelectedDirectory.Value 
+                    |> FileHandler.fileNames FileHandler.Extension.CSharp
+                    |> List.where (fun x -> not (x.EndsWith(".Designer.cs")))
+                    |> List.map (FileHandler.fileContentAsync FileHandler.Extension.CSharp)
+                    |> Async.Parallel
 
-            let cSharpFiles =
-                state.SelectedDirectory.Value 
-                |> FileHandler.fileNames FileHandler.Extension.CSharp
-                |> List.where (fun x -> not (x.EndsWith(".Designer.cs")))
-                |> List.map (FileHandler.fileContent FileHandler.Extension.CSharp)
-                |> List.filter FileHandler.isRelevantFileForSearch
+                let cSharpFiles = 
+                    allCSharpFiles
+                    |> Seq.filter FileHandler.isRelevantFileForSearch
+                    |> List.ofSeq
 
-            let xamlFiles =
-                state.SelectedDirectory.Value 
-                |> FileHandler.fileNames FileHandler.Extension.Xaml
-                |> List.map (FileHandler.fileContent FileHandler.Extension.Xaml)
-                |> List.filter FileHandler.isRelevantFileForSearch
+                let! allXamlFiles =
+                    state.SelectedDirectory.Value 
+                    |> FileHandler.fileNames FileHandler.Extension.Xaml
+                    |> List.map (FileHandler.fileContentAsync FileHandler.Extension.Xaml)
+                    |> Async.Parallel
 
-            let getResultsForPath = FileHandler.checkFileForKeys keys
+                let xamlFiles =
+                    allXamlFiles
+                    |> Seq.filter FileHandler.isRelevantFileForSearch
+                    |> List.ofSeq
 
-            let res = (cSharpFiles@xamlFiles) |> PSeq.map getResultsForPath |> Seq.collect id |> List.ofSeq
-            let countKeywords resource = res |> List.sumBy (fun y -> if resource.Key = y.KeyWord then 1 else 0 )
+                let getResultsForPath = FileHandler.checkFileForKeys keys
 
-            let newResources = state.Resources |> List.map (fun x -> { x with ReferenceCount = countKeywords x}) 
+                let res = (cSharpFiles@xamlFiles) |> PSeq.map getResultsForPath |> Seq.collect id |> List.ofSeq
+                let countKeywords resource = res |> List.sumBy (fun y -> if resource.Key = y.KeyWord then 1 else 0 )
 
-            {state with Resources = newResources}, Cmd.none
+                let newResources = state.Resources |> List.map (fun x -> { x with ReferenceCount = countKeywords x})
+                return newResources
+            }
+
+            let nextCommand = Cmd.OfAsync.perform processFiles () ResourcesProcessed
+
+            { state with ProcessingState = Loading }, nextCommand
+
+        | ResourcesProcessed resources -> { state with ProcessingState = Ready; Resources = resources }, Cmd.none
 
         | RemoveUnusedResources ->
             let keysToRemove = state.Resources |> List.filter (fun x -> x.ReferenceCount = 0) |> List.map (fun x -> x.Key)
@@ -141,7 +164,7 @@ module Shell =
 
             state.SourceResourceFile.Value.XElement.Save(state.SelectedFile.Value)
 
-            state, Cmd.none
+            initState, Cmd.none
     
     let createHeader row (state : State) dispatch =
         let createFilePathElement row col text =
@@ -228,6 +251,7 @@ module Shell =
 
     let view (state : State) (dispatch) =
         Grid.create [
+            Grid.isEnabled (state.ProcessingState = Ready)
             Grid.rowDefinitions "auto,1*"
             Grid.columnDefinitions "1*"
         

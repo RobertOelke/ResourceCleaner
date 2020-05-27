@@ -26,10 +26,13 @@ module FileHandler =
         Lines : Line list
     }
 
-    let fileContent extention path = {
-        FilePath = path
-        Extension = extention
-        Lines = File.ReadAllLines(path) |> Seq.mapi (fun i x -> { Index = i; Content = x }) |> List.ofSeq 
+    let fileContentAsync extention path = async {
+        let! read = Async.AwaitTask (File.ReadAllLinesAsync(path))
+        return {
+            FilePath = path
+            Extension = extention
+            Lines = read |> Seq.mapi (fun i x -> { Index = i; Content = x }) |> List.ofSeq 
+        }
     }   
 
     type KeyPosition = {
