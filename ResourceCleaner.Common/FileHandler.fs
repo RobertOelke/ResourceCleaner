@@ -15,29 +15,40 @@ module FileHandler =
         let fileNames = Directory.GetFiles(path, extension |> toExtension, SearchOption.AllDirectories)
         fileNames |> List.ofSeq
 
+    type Line = {
+        Index : int
+        Content : string
+    }
+
     type FileContent = {
         FilePath : string
         Extension : Extension
-        Lines : string list
+        Lines : Line list
     }
 
     let fileContent extention path = {
         FilePath = path
         Extension = extention
-        Lines = File.ReadAllLines(path) |> List.ofSeq
+        Lines = File.ReadAllLines(path) |> Seq.mapi (fun i x -> { Index = i; Content = x }) |> List.ofSeq 
     }   
 
-    let findIndecesOfKey (content : string) (key : string) : int list =
+    type KeyPosition = {
+        LineIndex : int
+        StartIndex : int
+    }
+
+    let findIndecesOfKey (line : Line) (key : string) : KeyPosition list =
         let rec findNextIndex (startIndex : int) matches =
-            match content.IndexOf(key, startIndex ) with
+            match line.Content.IndexOf(key, startIndex ) with
             | -1 -> matches
-            | i -> i :: (findNextIndex (i + 1) matches)
+            | i -> { LineIndex = line.Index; StartIndex = i } :: (findNextIndex (i + 1) matches)
         findNextIndex 0 []        
 
     type SearchResult = { 
         FileName : string 
         KeyWord : string
-        StartingIndex : int}
+        LineIndex : int
+        StartIndex : int}
 
     let cSharpFileContainsResource (fileContent : string list) =
         fileContent
@@ -51,14 +62,15 @@ module FileHandler =
 
     let isRelevantFileForSearch (fileContent : FileContent) =
         match fileContent.Extension with
-        | CSharp -> cSharpFileContainsResource fileContent.Lines
-        | Xaml -> xamlFileContainsResource fileContent.Lines
+        | CSharp ->  fileContent.Lines |> List.map (fun x -> x.Content) |> cSharpFileContainsResource
+        | Xaml ->  fileContent.Lines |> List.map (fun x -> x.Content) |> xamlFileContainsResource
 
     let checkFileForKeys (keys : string list) (file : FileContent) : SearchResult list =
-        keys 
-        |> List.collect 
-            (fun key ->
-                file.Lines
-                |> Seq.collect (fun c -> findIndecesOfKey c key)
-                |> List.ofSeq
-                |> List.map (fun i -> { FileName = file.FilePath; KeyWord = key; StartingIndex = i }))
+
+        let searchResultsForKey key =
+            file.Lines
+            |> Seq.collect (fun c -> findIndecesOfKey c key)
+            |> List.ofSeq
+            |> List.map (fun i -> { FileName = file.FilePath; KeyWord = key; LineIndex = i.LineIndex; StartIndex = i.StartIndex })
+
+        keys |> List.collect searchResultsForKey
